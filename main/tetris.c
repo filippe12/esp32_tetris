@@ -5,6 +5,7 @@
 #include <freertos/task.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include "sdkconfig.h"
 #include "driver/rtc_io.h"
 #include "esp_sleep.h"
@@ -25,12 +26,19 @@
 
 #define TETRIS_BLOCK_SIZE 3
 #define TETRIS_MAP_WIDTH  10
-#define TETRIS_MAP_HEIGHT 10
+#define TETRIS_MAP_HEIGHT 20
+#define TETRIS_MAX_SPEED  5
+#define TETRIS_NUMBER_OF_BLOCKS 4
 
 static u8g2_t u8g2;
 static u8g2_esp32_hal_t u8g2_esp32_hal = U8G2_ESP32_HAL_DEFAULT;
 static bool tetris_map[20][10];
 static int tetris_highscore = 0;
+
+typedef enum block_rotation
+{
+    NO_ROTATION , LEFT_90, RIGHT_90, UPSIDE_DOWN
+} block_rotation;
 
 void init_low_power_mode()
 {
@@ -79,7 +87,7 @@ void tetris_start_screen()
     u8g2_SendBuffer(&u8g2); // Transfer buffer to the display
 }
 
-void tetris_end_screen()
+void tetris_end_screen(int score)
 {
     u8g2_ClearBuffer(&u8g2); // Clear the internal screen buffer
 
@@ -87,13 +95,14 @@ void tetris_end_screen()
     u8g2_DrawStr(&u8g2, 10, 32, "End screen"); // Draw text at (x=10, y=32)
 
     u8g2_SendBuffer(&u8g2); // Transfer buffer to the display
+    if(score > tetris_highscore)
+        tetris_highscore = score;
 }
-
 
 void tetris_draw_frame()
 {
     short int x1 = DISPLAY_WIDTH/2;
-    short int x2 = x1 + TETRIS_MAP_WIDTH*TETRIS_BLOCK_SIZE + 2;
+    short int x2 = x1 + TETRIS_MAP_WIDTH*TETRIS_BLOCK_SIZE + 1;
     short int y1 = (DISPLAY_HEIGHT - TETRIS_BLOCK_SIZE*TETRIS_MAP_HEIGHT - 2)/2;
     short int y2 = y1 + TETRIS_MAP_HEIGHT*TETRIS_BLOCK_SIZE + 2; 
     u8g2_DrawLine(&u8g2, x1, DISPLAY_HEIGHT - y1, x2, DISPLAY_HEIGHT - y1);
@@ -118,19 +127,291 @@ void tetris_draw_blocks()
     }
 }
 
+void tetris_draw_active_block(short int map_x, short int map_y, short int id, block_rotation rotation)
+{
+    short int x_offset = DISPLAY_WIDTH/2 + 1;
+    short int y_offset = (DISPLAY_HEIGHT - TETRIS_BLOCK_SIZE*TETRIS_MAP_HEIGHT - 2)/2 + 1;
+    switch(id)
+    {
+        case 0: //single block
+            u8g2_DrawBox(&u8g2, x_offset + map_x*TETRIS_BLOCK_SIZE,
+                    DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + map_y*TETRIS_BLOCK_SIZE),
+                    TETRIS_BLOCK_SIZE, TETRIS_BLOCK_SIZE);       
+            break;
+
+        case 1: //2x2 block
+            u8g2_DrawBox(&u8g2, x_offset + map_x*TETRIS_BLOCK_SIZE,
+                    DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + map_y*TETRIS_BLOCK_SIZE),
+                    2*TETRIS_BLOCK_SIZE, 2*TETRIS_BLOCK_SIZE);       
+            break;
+
+        case 2: //small L block
+            u8g2_DrawBox(&u8g2, x_offset + map_x*TETRIS_BLOCK_SIZE,
+                    DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + map_y*TETRIS_BLOCK_SIZE),
+                    2*TETRIS_BLOCK_SIZE, 2*TETRIS_BLOCK_SIZE);       
+            u8g2_SetDrawColor(&u8g2, 0);
+            switch (rotation)
+            {
+                case NO_ROTATION:
+                    u8g2_DrawBox(&u8g2, x_offset + (map_x + 1)*TETRIS_BLOCK_SIZE,
+                        DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + map_y*TETRIS_BLOCK_SIZE),
+                        TETRIS_BLOCK_SIZE, TETRIS_BLOCK_SIZE);       
+                    break;
+                case RIGHT_90:
+                    u8g2_DrawBox(&u8g2, x_offset + (map_x + 1)*TETRIS_BLOCK_SIZE,
+                        DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + (map_y - 1)*TETRIS_BLOCK_SIZE),
+                        TETRIS_BLOCK_SIZE, TETRIS_BLOCK_SIZE);       
+                    break;
+                case UPSIDE_DOWN:
+                    u8g2_DrawBox(&u8g2, x_offset + map_x*TETRIS_BLOCK_SIZE,
+                        DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + (map_y - 1)*TETRIS_BLOCK_SIZE),
+                        TETRIS_BLOCK_SIZE, TETRIS_BLOCK_SIZE);       
+                    break;
+                case LEFT_90:
+                    u8g2_DrawBox(&u8g2, x_offset + map_x*TETRIS_BLOCK_SIZE,
+                        DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + map_y*TETRIS_BLOCK_SIZE),
+                        TETRIS_BLOCK_SIZE, TETRIS_BLOCK_SIZE);       
+                    break;
+            }
+            u8g2_SetDrawColor(&u8g2, 1);
+            break;
+
+        case 3: //t block
+            u8g2_DrawBox(&u8g2, x_offset + map_x*TETRIS_BLOCK_SIZE,
+                    DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + map_y*TETRIS_BLOCK_SIZE),
+                    TETRIS_BLOCK_SIZE, 2*TETRIS_BLOCK_SIZE);
+            switch(rotation)
+            {
+                case NO_ROTATION:
+                    u8g2_DrawBox(&u8g2, x_offset + (map_x - 1)*TETRIS_BLOCK_SIZE,
+                        DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + map_y*TETRIS_BLOCK_SIZE),
+                        3*TETRIS_BLOCK_SIZE, TETRIS_BLOCK_SIZE);
+                    break;
+                case RIGHT_90:
+                    u8g2_DrawBox(&u8g2, x_offset + map_x*TETRIS_BLOCK_SIZE,
+                        DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + (map_y - 2)*TETRIS_BLOCK_SIZE),
+                        TETRIS_BLOCK_SIZE, TETRIS_BLOCK_SIZE);
+                    u8g2_DrawBox(&u8g2, x_offset + (map_x - 1)*TETRIS_BLOCK_SIZE,
+                        DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + (map_y - 1)*TETRIS_BLOCK_SIZE),
+                        TETRIS_BLOCK_SIZE, TETRIS_BLOCK_SIZE);
+                    break;
+                case UPSIDE_DOWN:
+                    u8g2_DrawBox(&u8g2, x_offset + (map_x - 1)*TETRIS_BLOCK_SIZE,
+                        DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + (map_y - 1)*TETRIS_BLOCK_SIZE),
+                        3*TETRIS_BLOCK_SIZE, TETRIS_BLOCK_SIZE);
+                    break;
+                case LEFT_90:
+                    u8g2_DrawBox(&u8g2, x_offset + map_x*TETRIS_BLOCK_SIZE,
+                        DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + (map_y - 2)*TETRIS_BLOCK_SIZE),
+                        TETRIS_BLOCK_SIZE, TETRIS_BLOCK_SIZE);
+                    u8g2_DrawBox(&u8g2, x_offset + (map_x + 1)*TETRIS_BLOCK_SIZE,
+                        DISPLAY_HEIGHT - (TETRIS_BLOCK_SIZE - 1) - (y_offset + (map_y - 1)*TETRIS_BLOCK_SIZE),
+                        TETRIS_BLOCK_SIZE, TETRIS_BLOCK_SIZE);
+                    break;
+            }
+            break;
+        case 4:
+            break;
+        case 5:
+            break;
+        case 6:
+            break;
+        case 7:
+            break;
+        case 8:
+            break;
+    }
+}
+
+void tetris_draw_background(int score)
+{
+    if(score > tetris_highscore)
+        tetris_highscore = score;
+}
+
+bool tetris_block_fits(short int map_x, short int map_y, short int id, block_rotation rotation)
+{
+    switch(id)
+    {
+        case 0: //signle block
+            if(map_x >= TETRIS_MAP_WIDTH || map_x < 0 || map_y < 0)
+                return false;
+            if(tetris_map[map_y][map_x])
+                return false;
+            break;
+
+        case 1: //2x2 block
+            if((map_x + 1) >= TETRIS_MAP_WIDTH || map_x < 0 || (map_y - 1) < 0)
+                return false;
+            if(tetris_map[map_y][map_x] || tetris_map[map_y - 1][map_x + 1] ||
+                tetris_map[map_y - 1][map_x] || tetris_map[map_y][map_x + 1])
+                return false;
+            break;
+
+        case 2: //small L block
+            if((map_x + 1) >= TETRIS_MAP_WIDTH || map_x < 0 || (map_y - 1) < 0)
+                return false;
+            switch(rotation)
+            {
+                case NO_ROTATION:
+                    if(tetris_map[map_y][map_x] || tetris_map[map_y - 1][map_x + 1] || tetris_map[map_y - 1][map_x])
+                        return false;
+                    break;
+                case RIGHT_90:
+                    if(tetris_map[map_y][map_x] || tetris_map[map_y - 1][map_x] || tetris_map[map_y][map_x + 1])
+                        return false;
+                    break;
+                case UPSIDE_DOWN:
+                    if(tetris_map[map_y][map_x] || tetris_map[map_y - 1][map_x + 1] || tetris_map[map_y][map_x + 1])
+                        return false;
+                    break;
+                case LEFT_90:
+                    if(tetris_map[map_y - 1][map_x + 1] || tetris_map[map_y - 1][map_x] || tetris_map[map_y][map_x + 1])
+                        return false;
+                    break;
+            }
+            break;
+
+        case 3: //t block
+            switch(rotation)
+            {
+                case NO_ROTATION:
+                    if((map_x + 1) >= TETRIS_MAP_WIDTH || (map_x - 1) < 0 || (map_y - 1) < 0)
+                        return false;
+                    if(tetris_map[map_y][map_x] || tetris_map[map_y - 1][map_x] ||
+                        tetris_map[map_y][map_x + 1] || tetris_map[map_y][map_x - 1])
+                        return false;
+                    break;
+                case RIGHT_90:
+                    if(map_x >= TETRIS_MAP_WIDTH || (map_x - 1) < 0 || (map_y - 2) < 0)
+                        return false;
+                    if(tetris_map[map_y][map_x] || tetris_map[map_y - 1][map_x] ||
+                        tetris_map[map_y - 2][map_x] || tetris_map[map_y - 1][map_x - 1])
+                        return false;
+                    break;
+                case UPSIDE_DOWN:
+                    if((map_x + 1) >= TETRIS_MAP_WIDTH || (map_x - 1) < 0 || (map_y - 1) < 0)
+                        return false;
+                    if(tetris_map[map_y][map_x] || tetris_map[map_y - 1][map_x] ||
+                        tetris_map[map_y - 1][map_x + 1] || tetris_map[map_y - 1][map_x - 1])
+                        return false;
+                    break;
+                case LEFT_90:
+                    if((map_x + 1) >= TETRIS_MAP_WIDTH || map_x < 0 || (map_y - 2) < 0)
+                        return false;
+                    if(tetris_map[map_y][map_x] || tetris_map[map_y - 1][map_x] ||
+                        tetris_map[map_y - 2][map_x] || tetris_map[map_y - 1][map_x + 1])
+                        return false;
+                    break;
+            }
+            break;
+    }
+    return true;
+}
+
+void tetris_deactivate_block(short int map_x, short int map_y, short int id, block_rotation rotation)
+{
+    switch(id)
+    {
+        case 0: //single block
+            tetris_map[map_y][map_x] = true;
+            break;
+        case 1: //2x2 block
+            tetris_map[map_y][map_x] = true;
+            tetris_map[map_y][map_x + 1] = true;
+            tetris_map[map_y - 1][map_x] = true;
+            tetris_map[map_y - 1][map_x + 1] = true;
+            break;
+        case 2: //small L block
+            switch(rotation)
+            {
+                case NO_ROTATION:
+                    tetris_map[map_y][map_x] = true;
+                    tetris_map[map_y - 1][map_x] = true;
+                    tetris_map[map_y - 1][map_x + 1] = true;
+                    break;
+                case RIGHT_90:
+                    tetris_map[map_y][map_x] = true;
+                    tetris_map[map_y][map_x + 1] = true;
+                    tetris_map[map_y - 1][map_x] = true;
+                    break;
+                case UPSIDE_DOWN:
+                    tetris_map[map_y][map_x] = true;
+                    tetris_map[map_y][map_x + 1] = true;
+                    tetris_map[map_y - 1][map_x + 1] = true;
+                    break;
+                case LEFT_90:
+                    tetris_map[map_y][map_x + 1] = true;
+                    tetris_map[map_y - 1][map_x] = true;
+                    tetris_map[map_y - 1][map_x + 1] = true;
+                    break;
+            } break;
+        case 3: //t block
+            switch(rotation)
+            {
+                case NO_ROTATION:
+                    tetris_map[map_y][map_x] = true;
+                    tetris_map[map_y - 1][map_x] = true;
+                    tetris_map[map_y][map_x + 1] = true;
+                    tetris_map[map_y][map_x - 1] = true;
+                    break;
+                case RIGHT_90:
+                    tetris_map[map_y][map_x] = true;
+                    tetris_map[map_y - 1][map_x] = true;
+                    tetris_map[map_y - 2][map_x] = true;
+                    tetris_map[map_y - 1][map_x - 1] = true;
+                    break;
+                case UPSIDE_DOWN:
+                    tetris_map[map_y][map_x] = true;
+                    tetris_map[map_y - 1][map_x] = true;
+                    tetris_map[map_y - 1][map_x + 1] = true;
+                    tetris_map[map_y - 1][map_x - 1] = true;
+                    break;
+                case LEFT_90:
+                    tetris_map[map_y][map_x] = true;
+                    tetris_map[map_y - 1][map_x] = true;
+                    tetris_map[map_y - 2][map_x] = true;
+                    tetris_map[map_y - 1][map_x + 1] = true;
+                    break;
+            } break;
+        case 4:
+            switch(rotation)
+            {
+                case NO_ROTATION:
+                    break;
+                case RIGHT_90:
+                    break;
+                case UPSIDE_DOWN:
+                    break;
+                case LEFT_90:
+                    break;
+            } break;
+    }
+}
+
 void app_main(void)
 {
     init_buttons();
     init_display();
     init_low_power_mode();
+    srand(time(0));
 
     int score;
+    short int block_id, block_x, block_y;
+    short int next_id, next_x, next_y;
+    short int speed, ticks_till_fall;
+    block_rotation rotation, next_rotation;
 
     while(true)
     {
         //initialize variables
-        score = 0;
+        score = 0, speed = 1;
+        ticks_till_fall = TETRIS_MAX_SPEED + 1 - speed;
+        block_x = -1, block_y = -1, next_x = -1, next_y = -1;
+        block_id = rand() % TETRIS_NUMBER_OF_BLOCKS;
+        next_id = rand() % TETRIS_NUMBER_OF_BLOCKS;
         memset(tetris_map, 0, sizeof(tetris_map));
+        rotation = NO_ROTATION, next_rotation = NO_ROTATION;
 
         tetris_start_screen();
 
@@ -140,10 +421,76 @@ void app_main(void)
         //main game loop
         while(true)
         {
+            u8g2_ClearBuffer(&u8g2);
 
+            //process user inupt
+            if(gpio_get_level(DOWN_BUTTON))
+                next_y = block_y - 1;
+            if(gpio_get_level(LEFT_BUTTON))
+                next_x = block_x - 1;
+            if(gpio_get_level(RIGHT_BUTTON))
+                next_x = block_x + 1;
+            if(gpio_get_level(UP_BUTTON))
+                switch(rotation)
+                {
+                    case NO_ROTATION:
+                        next_rotation = RIGHT_90; break;
+                    case RIGHT_90:
+                        next_rotation = UPSIDE_DOWN; break;
+                    case UPSIDE_DOWN:
+                        next_rotation = LEFT_90; break;
+                    case LEFT_90:
+                        next_rotation = NO_ROTATION; break;
+                }
+
+            if(block_id == -1)
+            {
+                block_id = next_id;
+                next_id = rand() % TETRIS_NUMBER_OF_BLOCKS;
+                block_x = TETRIS_MAP_WIDTH / 2;
+                block_y = TETRIS_MAP_HEIGHT - 1;
+                rotation = NO_ROTATION;
+                next_x = block_x, next_y = block_y, next_rotation = rotation;
+            }
+
+            ticks_till_fall--;
+            if(ticks_till_fall == 0)
+            {
+                ticks_till_fall = TETRIS_MAX_SPEED + 1 - speed;
+                if(next_y == block_y)
+                    next_y--;
+            }
+
+            if(next_x != block_x)
+                if(tetris_block_fits(next_x, block_y, block_id, rotation))
+                    block_x = next_x;
+            if(next_rotation != rotation)
+                if(tetris_block_fits(block_x, block_y, block_id, next_rotation))
+                    rotation = next_rotation;
+            if(next_y < block_y)
+            {
+                if(tetris_block_fits(block_x, next_y, block_id, rotation))
+                    block_y = next_y;
+                else
+                {
+                    tetris_deactivate_block(block_x, block_y, block_id, rotation);
+                    block_y = -1, block_x = -1, block_id = -1;
+                    next_x = -1, next_y = -1;
+                }
+            }
+            
+
+
+
+            
+            //render eveything
+
+            tetris_draw_active_block(block_x, block_y, block_id, rotation);
+            tetris_draw_background(score);
+            tetris_draw_frame();
+            tetris_draw_blocks();
+            u8g2_SendBuffer(&u8g2);
         }
-
-        //free any dynamic memroy
 
         tetris_end_screen(score);
 
