@@ -77,6 +77,18 @@ void init_display()
     u8g2_SendBuffer(&u8g2);
 }
 
+void tetris_shift_rows_down(short int starting_row, short int amount)
+{
+    for(int row = starting_row; row < TETRIS_MAP_HEIGHT - amount; row++)
+    {
+        memcpy(tetris_map[row], tetris_map[row + amount], sizeof(tetris_map[row]));
+    }
+    for(int row = TETRIS_MAP_HEIGHT - amount; row < TETRIS_MAP_HEIGHT; row++)
+    {
+        memset(tetris_map[row], 0, sizeof(tetris_map[row]));
+    }
+}
+
 void tetris_start_screen()
 {
     u8g2_ClearBuffer(&u8g2); // Clear the internal screen buffer
@@ -227,6 +239,33 @@ void tetris_draw_background(int score)
 {
     if(score > tetris_highscore)
         tetris_highscore = score;
+}
+
+void tetris_draw_row_deletion(short int row, short int count, int score)
+{
+    if(row == -1)
+        return;
+
+    for(int i = 0; i < TETRIS_MAP_WIDTH/2; i++)
+    {
+        for(int j = 0; j < count; j++)
+        {
+            tetris_map[row + j][TETRIS_MAP_WIDTH/2 + i] = false;
+            tetris_map[row + j][TETRIS_MAP_WIDTH/2 - 1 - i] = false;
+        }
+        u8g2_ClearBuffer(&u8g2);
+        tetris_draw_background(score);
+        tetris_draw_frame();
+        tetris_draw_blocks();
+        u8g2_SendBuffer(&u8g2);
+    }
+
+    tetris_shift_rows_down(row, count);
+    u8g2_ClearBuffer(&u8g2);
+    tetris_draw_background(score);
+    tetris_draw_frame();
+    tetris_draw_blocks();
+    u8g2_SendBuffer(&u8g2);
 }
 
 bool tetris_block_fits(short int map_x, short int map_y, short int id, block_rotation rotation)
@@ -389,6 +428,50 @@ void tetris_deactivate_block(short int map_x, short int map_y, short int id, blo
     }
 }
 
+int tetris_check_row_completion(int score)
+{
+    short int consecutive_rows = 1;
+    short int starting_row = -1;
+    bool completed_row;
+    for(int row = 0; row < TETRIS_MAP_HEIGHT; row++)
+    {
+        completed_row = 1;
+        for(int col = 0; col < TETRIS_MAP_WIDTH; col++)
+        {
+            if(!tetris_map[row][col])
+            {
+                completed_row = 0;
+                break;
+            }
+        }
+
+        if(starting_row != -1)
+        {
+            if(completed_row)
+                consecutive_rows += 1;
+            else
+                break;
+        }
+        else if(completed_row)
+            starting_row = row;
+    }
+
+    tetris_draw_row_deletion(starting_row, consecutive_rows, score);
+
+    switch(consecutive_rows)
+    {
+        case 1:
+            score += 100; break;
+        case 2:
+            score += 300; break;
+        case 3:
+            score += 600; break;    
+        case 4:
+            score += 1000; break;
+    }
+    return score;
+}
+
 void app_main(void)
 {
     init_buttons();
@@ -478,18 +561,19 @@ void app_main(void)
                     next_x = -1, next_y = -1;
                 }
             }
-            
+            //rollback all unsuccessful states
+            next_x = block_x, next_y = block_y, next_rotation = rotation;
 
-
-
-            
             //render eveything
-
             tetris_draw_active_block(block_x, block_y, block_id, rotation);
             tetris_draw_background(score);
             tetris_draw_frame();
             tetris_draw_blocks();
             u8g2_SendBuffer(&u8g2);
+
+            //check for completed rows
+            if(block_id == -1)
+                score = tetris_check_row_completion(score);
         }
 
         tetris_end_screen(score);
