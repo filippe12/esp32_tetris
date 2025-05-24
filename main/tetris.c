@@ -37,7 +37,7 @@ static int tetris_highscore = 0;
 
 typedef enum block_rotation
 {
-    NO_ROTATION , LEFT_90, RIGHT_90, UPSIDE_DOWN
+    NO_ROTATION, LEFT_90, RIGHT_90, UPSIDE_DOWN
 } block_rotation;
 
 void init_low_power_mode()
@@ -91,12 +91,21 @@ void tetris_shift_rows_down(short int starting_row, short int amount)
 
 void tetris_start_screen()
 {
-    u8g2_ClearBuffer(&u8g2); // Clear the internal screen buffer
+    u8g2_ClearBuffer(&u8g2);
 
-    u8g2_SetFont(&u8g2, u8g2_font_4x6_mf); // Use small font
-    u8g2_DrawStr(&u8g2, 10, 32, "Start screen"); // Draw text at (x=10, y=32)
+    u8g2_SetFont(&u8g2, u8g2_font_logisoso32_tr);
+    const char *title = "Tetris";
+    short int title_width = u8g2_GetStrWidth(&u8g2, title);
+    short int title_x = (DISPLAY_WIDTH - title_width) / 2;
+    u8g2_DrawStr(&u8g2, title_x, 42, title);
 
-    u8g2_SendBuffer(&u8g2); // Transfer buffer to the display
+    u8g2_SetFont(&u8g2, u8g2_font_5x7_tr);
+    const char *prompt = "Press any button to play";
+    short int prompt_width = u8g2_GetStrWidth(&u8g2, prompt);
+    short int prompt_x = (DISPLAY_WIDTH - prompt_width) / 2;
+    u8g2_DrawStr(&u8g2, prompt_x, 60, prompt);
+
+    u8g2_SendBuffer(&u8g2);
 }
 
 void tetris_end_screen(int score)
@@ -380,13 +389,15 @@ void tetris_draw_active_block(short int map_x, short int map_y, short int id, bl
     }
 }
 
-void tetris_draw_background(int score)
+void tetris_draw_background(int score, short int speed)
 {
+    if(speed == 0)
+        return;
     if(score > tetris_highscore)
         tetris_highscore = score;
 }
 
-void tetris_draw_row_deletion(short int row, short int count, int score)
+void tetris_draw_row_deletion(short int row, short int count, int score, short int speed)
 {
     if(row == -1)
         return;
@@ -399,7 +410,7 @@ void tetris_draw_row_deletion(short int row, short int count, int score)
             tetris_map[row + j][TETRIS_MAP_WIDTH/2 - 1 - i] = false;
         }
         u8g2_ClearBuffer(&u8g2);
-        tetris_draw_background(score);
+        tetris_draw_background(score, speed);
         tetris_draw_frame();
         tetris_draw_blocks();
         u8g2_SendBuffer(&u8g2);
@@ -407,7 +418,7 @@ void tetris_draw_row_deletion(short int row, short int count, int score)
 
     tetris_shift_rows_down(row, count);
     u8g2_ClearBuffer(&u8g2);
-    tetris_draw_background(score);
+    tetris_draw_background(score, speed);
     tetris_draw_frame();
     tetris_draw_blocks();
     u8g2_SendBuffer(&u8g2);
@@ -804,7 +815,7 @@ void tetris_deactivate_block(short int map_x, short int map_y, short int id, blo
     }
 }
 
-int tetris_check_row_completion(int score)
+int tetris_check_row_completion(int score, short int speed)
 {
     short int consecutive_rows = 1;
     short int starting_row = -1;
@@ -832,7 +843,7 @@ int tetris_check_row_completion(int score)
             starting_row = row;
     }
 
-    tetris_draw_row_deletion(starting_row, consecutive_rows, score);
+    tetris_draw_row_deletion(starting_row, consecutive_rows, score, speed);
     
     if(starting_row == -1)
         return score;
@@ -858,7 +869,7 @@ void app_main(void)
     init_low_power_mode();
     srand(time(0));
 
-    int score;
+    int score, speed_limit;
     short int block_id, block_x, block_y;
     short int next_id, next_x, next_y;
     short int speed, ticks_till_fall;
@@ -867,14 +878,16 @@ void app_main(void)
     while(true)
     {
         //initialize variables
-        score = 0, speed = 1;
+        score = 0, speed = 1, speed_limit = 2000;
         ticks_till_fall = TETRIS_MAX_SPEED + 1 - speed;
-        block_x = -1, block_y = -1, next_x = -1, next_y = -1;
         block_id = rand() % TETRIS_NUMBER_OF_BLOCKS;
         next_id = rand() % TETRIS_NUMBER_OF_BLOCKS;
+        block_x = TETRIS_MAP_WIDTH / 2 - 1;
+        block_y = TETRIS_MAP_HEIGHT - 1;
+        rotation = NO_ROTATION;
+        next_x = block_x, next_y = block_y, next_rotation = rotation;
         memset(tetris_map, 0, sizeof(tetris_map));
-        rotation = NO_ROTATION, next_rotation = NO_ROTATION;
-
+        
         tetris_start_screen();
 
         //wait for button press to start the game
@@ -909,7 +922,7 @@ void app_main(void)
             {
                 block_id = next_id;
                 next_id = rand() % TETRIS_NUMBER_OF_BLOCKS;
-                block_x = TETRIS_MAP_WIDTH / 2;
+                block_x = TETRIS_MAP_WIDTH / 2 - 1;
                 block_y = TETRIS_MAP_HEIGHT - 1;
                 rotation = NO_ROTATION;
                 next_x = block_x, next_y = block_y, next_rotation = rotation;
@@ -922,6 +935,21 @@ void app_main(void)
             ticks_till_fall--;
             if(ticks_till_fall == 0)
             {
+                if(score >= speed_limit && speed_limit != -1)
+                {
+                    speed++;
+                    switch(speed)
+                    {
+                        case 2:
+                            speed_limit = 4000; break;
+                        case 3:
+                            speed_limit = 10000; break;
+                        case 4:
+                            speed_limit = 20000; break;
+                        case 5:
+                            speed_limit = -1; break;
+                    }
+                }
                 ticks_till_fall = TETRIS_MAX_SPEED + 1 - speed;
                 if(next_y == block_y)
                     next_y--;
@@ -949,14 +977,14 @@ void app_main(void)
 
             //render eveything
             tetris_draw_active_block(block_x, block_y, block_id, rotation);
-            tetris_draw_background(score);
+            tetris_draw_background(score, speed);
             tetris_draw_frame();
             tetris_draw_blocks();
             u8g2_SendBuffer(&u8g2);
 
             //check for completed rows
             if(block_id == -1)
-                score = tetris_check_row_completion(score);
+                score = tetris_check_row_completion(score, speed);
         }
 
         tetris_end_screen(score);
