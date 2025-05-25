@@ -1,4 +1,3 @@
-# Ignore ESP-IDF build artifacts
 build/
 sdkconfig
 sdkconfig.old

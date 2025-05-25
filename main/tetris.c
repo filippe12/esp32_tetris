@@ -389,15 +389,85 @@ void tetris_draw_active_block(short int map_x, short int map_y, short int id, bl
     }
 }
 
-void tetris_draw_background(int score, short int speed)
+void tetris_draw_background(int score, short int speed, short int next_id)
 {
-    if(speed == 0)
-        return;
-    if(score > tetris_highscore)
-        tetris_highscore = score;
+    u8g2_SetFont(&u8g2, u8g2_font_4x6_tf);
+
+    char buf[16];
+    const int ui_x = 40;
+    int y = 6;
+
+    // --- SCORE ---
+    u8g2_DrawStr(&u8g2, ui_x, y, "SCORE");
+    snprintf(buf, sizeof(buf), "%d", score);
+    y += 7;
+    u8g2_DrawFrame(&u8g2, ui_x, y - 6, 19, 9);
+    int score_width = u8g2_GetStrWidth(&u8g2, buf);
+    u8g2_DrawStr(&u8g2, ui_x + 19 - score_width - 2, y + 1, buf);
+    y += 11;
+
+    // --- SPEED ---
+    u8g2_DrawStr(&u8g2, ui_x, y, "SPEED");
+    snprintf(buf, sizeof(buf), "%d", speed);
+    y += 7;
+    u8g2_DrawFrame(&u8g2, ui_x, y - 6, 19, 9);
+    int speed_width = u8g2_GetStrWidth(&u8g2, buf);
+    u8g2_DrawStr(&u8g2, ui_x + 19 - speed_width - 2, y + 1, buf);
+    y += 17;
+
+    // --- NEXT Block ---
+    u8g2_DrawStr(&u8g2, ui_x + 3, y, "NEXT");
+    y += 2;
+    int preview_x = ui_x + 2;
+    int preview_y = y;
+    u8g2_DrawFrame(&u8g2, preview_x - 1, preview_y - 1, 18, 12);
+    switch(next_id)
+    {
+        case 0: //single block
+            u8g2_DrawBox(&u8g2, preview_x + 7, preview_y + 4, 2, 2);
+            break;
+
+        case 1: //2x2 block
+            u8g2_DrawBox(&u8g2, preview_x + 6, preview_y + 3, 4, 4);
+            break;
+
+        case 2: //small L block
+            u8g2_DrawBox(&u8g2, preview_x + 6, preview_y + 3, 2, 4);
+            u8g2_DrawBox(&u8g2, preview_x + 8, preview_y + 5, 2, 2);
+            break;
+
+        case 3: //t block
+            u8g2_DrawBox(&u8g2, preview_x + 5, preview_y + 3, 6, 2);
+            u8g2_DrawBox(&u8g2, preview_x + 7, preview_y + 5, 2, 2);
+            break;
+
+        case 4: //z block
+            u8g2_DrawBox(&u8g2, preview_x + 5, preview_y + 3, 4, 2);
+            u8g2_DrawBox(&u8g2, preview_x + 7, preview_y + 5, 4, 2);
+            break;
+
+        case 5: //reverse z block
+            u8g2_DrawBox(&u8g2, preview_x + 7, preview_y + 3, 4, 2);
+            u8g2_DrawBox(&u8g2, preview_x + 5, preview_y + 5, 4, 2);
+            break;
+
+        case 6: //L block
+            u8g2_DrawBox(&u8g2, preview_x + 9, preview_y + 3, 2, 2);
+            u8g2_DrawBox(&u8g2, preview_x + 5, preview_y + 5, 6, 2);
+            break;
+
+        case 7: //reverse L block
+            u8g2_DrawBox(&u8g2, preview_x + 5, preview_y + 3, 2, 2);
+            u8g2_DrawBox(&u8g2, preview_x + 5, preview_y + 5, 6, 2);
+            break;
+
+        case 8: //4x1 long block
+            u8g2_DrawBox(&u8g2, preview_x + 4, preview_y + 4, 8, 2);
+            break;
+    }
 }
 
-void tetris_draw_row_deletion(short int row, short int count, int score, short int speed)
+void tetris_draw_row_deletion(short int row, short int count, int score, short int speed, short int next_id)
 {
     if(row == -1)
         return;
@@ -410,7 +480,7 @@ void tetris_draw_row_deletion(short int row, short int count, int score, short i
             tetris_map[row + j][TETRIS_MAP_WIDTH/2 - 1 - i] = false;
         }
         u8g2_ClearBuffer(&u8g2);
-        tetris_draw_background(score, speed);
+        tetris_draw_background(score, speed, next_id);
         tetris_draw_frame();
         tetris_draw_blocks();
         u8g2_SendBuffer(&u8g2);
@@ -418,7 +488,7 @@ void tetris_draw_row_deletion(short int row, short int count, int score, short i
 
     tetris_shift_rows_down(row, count);
     u8g2_ClearBuffer(&u8g2);
-    tetris_draw_background(score, speed);
+    tetris_draw_background(score, speed, next_id);
     tetris_draw_frame();
     tetris_draw_blocks();
     u8g2_SendBuffer(&u8g2);
@@ -815,7 +885,7 @@ void tetris_deactivate_block(short int map_x, short int map_y, short int id, blo
     }
 }
 
-int tetris_check_row_completion(int score, short int speed)
+int tetris_check_row_completion(short int* score_multiplier, int score, short int speed, short int next_id)
 {
     short int consecutive_rows = 1;
     short int starting_row = -1;
@@ -843,23 +913,27 @@ int tetris_check_row_completion(int score, short int speed)
             starting_row = row;
     }
 
-    tetris_draw_row_deletion(starting_row, consecutive_rows, score, speed);
+    tetris_draw_row_deletion(starting_row, consecutive_rows, score, speed, next_id);
     
     if(starting_row == -1)
-        return score;
+    {
+        *score_multiplier = 0;
+        return 0;
+    }
 
+    (*score_multiplier)++;
     switch(consecutive_rows)
     {
         case 1:
-            score += 100; break;
+            return (*score_multiplier) * 100;
         case 2:
-            score += 300; break;
+            return (*score_multiplier) * 300;
         case 3:
-            score += 600; break;    
+            return (*score_multiplier) * 600;
         case 4:
-            score += 1000; break;
+            return (*score_multiplier) * 1000;
     }
-    return score;
+    return 0;
 }
 
 void app_main(void)
@@ -872,13 +946,13 @@ void app_main(void)
     int score, speed_limit;
     short int block_id, block_x, block_y;
     short int next_id, next_x, next_y;
-    short int speed, ticks_till_fall;
+    short int speed, ticks_till_fall, score_multiplier;
     block_rotation rotation, next_rotation;
 
     while(true)
     {
         //initialize variables
-        score = 0, speed = 1, speed_limit = 2000;
+        score = 0, speed = 1, speed_limit = 2000, score_multiplier = 0;
         ticks_till_fall = TETRIS_MAX_SPEED + 1 - speed;
         block_id = rand() % TETRIS_NUMBER_OF_BLOCKS;
         next_id = rand() % TETRIS_NUMBER_OF_BLOCKS;
@@ -977,14 +1051,15 @@ void app_main(void)
 
             //render eveything
             tetris_draw_active_block(block_x, block_y, block_id, rotation);
-            tetris_draw_background(score, speed);
+            tetris_draw_background(score, speed, next_id);
             tetris_draw_frame();
             tetris_draw_blocks();
             u8g2_SendBuffer(&u8g2);
 
             //check for completed rows
             if(block_id == -1)
-                score = tetris_check_row_completion(score, speed);
+                score += tetris_check_row_completion(&score_multiplier, score, speed, next_id);
+            
         }
 
         tetris_end_screen(score);
