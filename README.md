@@ -23,7 +23,7 @@ How to run it
 Grab the code:
 
     git clone https://github.com/filippe12/esp32_tetris.git
-    cd esp32_snake
+    cd esp32_tetris
 
 Make sure you have ESP-IDF set up.
 
